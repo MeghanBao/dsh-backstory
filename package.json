@@ -1,7 +1,7 @@
 {
   "name": "dsh-backstory",
-  "version": "0.1.0",
-  "description": "Ask any line of code its backstory: what it does, and why it's here — grounded in git history (and, soon, the agent's own session log).",
+  "version": "0.2.0",
+  "description": "Ask any line of code its backstory: what it does, and why it's here — grounded in git history and the agent's own session log.",
   "type": "module",
   "main": "src/index.ts",
   "files": [
