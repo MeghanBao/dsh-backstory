@@ -1,0 +1,3 @@
+# Standalone dev composition — load just this plugin for local iteration.
+# See docs/cordis-tutorial in the deepseek-harness repo.
+- name: './src/index.ts'

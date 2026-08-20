@@ -1,0 +1,39 @@
+{
+  "name": "dsh-backstory",
+  "version": "0.1.0",
+  "description": "Ask any line of code its backstory: what it does, and why it's here — grounded in git history (and, soon, the agent's own session log).",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "cordis.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "git-blame",
+    "provenance",
+    "code-explanation"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "author": "MeghanBao",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MeghanBao/dsh-backstory.git"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
