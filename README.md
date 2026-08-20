@@ -9,13 +9,13 @@ why it exists** — grounded in the commit that last touched it (and, soon, the
 agent's own session log).
 
 ```
-backstory  src/auth.ts:88
-────────────────────────────────────────────
-L88 · a1b2c3d  Meghan Bao 2026-08-14 — "tighten jwt expiry"
-    const token = signJWT(user, { exp: '15m' })
+backstory  src/blame.ts:27          # a real line from this repo
+──────────────────────────────────────────────────────────────
+L27 · a5d49e9  MeghanBao 2026-08-20 — "feat: dsh-backstory v0.1 …"
+    const header = /^([0-9a-f]{40}) \d+ (\d+)(?: \d+)?$/.exec(raw)
 
-→ WHAT: signs a JWT that expires in 15 minutes
-→ WHY : commit "tighten jwt expiry" — short-lived token to limit replay
+→ WHAT: matches a `git blame --line-porcelain` header line (sha + line numbers)
+→ WHY : commit "dsh-backstory v0.1" — starts a new blame record for each line
 ```
 
 ## Why it's different
