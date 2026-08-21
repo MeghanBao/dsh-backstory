@@ -3,10 +3,11 @@ import { dirname, relative, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { isoDate, shortSha } from './blame.ts'
-import { blameFile } from './git.ts'
+import { blameFile, readCommitBodies } from './git.ts'
 import { findTrigger, normalizeEvents, type RawEvent } from './provenance.ts'
 import { appendRecord, buildRecord, computeTouch, readLedger } from './ledger.ts'
-import { attributeLine, type LedgerOrigin } from './attribution.ts'
+import { attributeLine } from './attribution.ts'
+import { parseProvenanceTrailers, type CommitProvenance } from './trailers.ts'
 
 // A dsh plugin = `name` + `apply(ctx)`.
 export const name = 'dsh-backstory'
@@ -226,16 +227,29 @@ export function apply(ctx: Context) {
           truncated = true
         }
 
-        // Per-line ledger attribution (drift-proof by content hash). Also yields
-        // a file-level origin from the first attributed line.
-        const enrich = (lines: BackstoryLine[]): Origin => {
+        // Attribute each line. Precedence: exact content-hash from the ledger
+        // (most precise) > git-native commit trailer (git tracks drift) > ledger
+        // line-range. Also yields a file-level origin from the first hit.
+        const enrich = (lines: BackstoryLine[], commitProv: Map<string, CommitProvenance>): Origin => {
           let fileOrigin = NO_ORIGIN
           for (const l of lines) {
-            const o: LedgerOrigin = attributeLine(records, args.path, l.line, l.content)
-            if (o.found) {
-              l.owner = { turn: o.turn, prompt: o.prompt, source: o.source }
+            const led = attributeLine(records, args.path, l.line, l.content)
+            const cp = commitProv.get(l.commit)
+            let owner: LineOwner | undefined
+            let tool = ''
+            if (led.found && led.source === 'ledger-hash') {
+              owner = { turn: led.turn, prompt: led.prompt, source: led.source }
+              tool = led.tool
+            } else if (cp) {
+              owner = { turn: cp.turn, prompt: cp.prompt, source: 'commit' }
+            } else if (led.found) {
+              owner = { turn: led.turn, prompt: led.prompt, source: led.source }
+              tool = led.tool
+            }
+            if (owner) {
+              l.owner = owner
               if (!fileOrigin.found) {
-                fileOrigin = { found: true, turn: o.turn, tool: o.tool, prompt: o.prompt, source: o.source }
+                fileOrigin = { found: true, turn: owner.turn, tool, prompt: owner.prompt, source: owner.source }
               }
             }
           }
@@ -264,8 +278,18 @@ export function apply(ctx: Context) {
               summary: '',
             }))
 
-        // Origin precedence: persistent ledger first, live session log second.
-        const ledgerOrigin = enrich(lines)
+        // Git-native provenance (v0.4): read DSH-* trailers off the blamed commits.
+        const commitProv = new Map<string, CommitProvenance>()
+        if (blame.repo) {
+          const bodies = await readCommitBodies(cwd, lines.map((l) => l.commit), { signal: exec.signal })
+          for (const [sha, body] of bodies) {
+            const p = parseProvenanceTrailers(body)
+            if (p) commitProv.set(sha, p)
+          }
+        }
+
+        // Origin precedence: ledger/commit attribution first, live session second.
+        const ledgerOrigin = enrich(lines, commitProv)
         const origin = ledgerOrigin.found ? ledgerOrigin : await sessionProvenance(exec, abs, start ?? 0)
 
         return blame.repo
