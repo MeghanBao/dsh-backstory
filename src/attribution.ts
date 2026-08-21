@@ -1,12 +1,16 @@
 // Pure attribution: given ledger records + a queried line, decide which agent
 // turn/prompt owns that line. Import-free and unit-tested.
 //
-// v0.3a: line-range containment — the most recent write whose [from,to] spans
-// the queried line. Ties break toward the most recently appended record
-// (later = newer). Drift-resilient content-hash matching lands in v0.3b.
+// Precedence (drift-resilient first):
+//   1. content-hash match (v0.3b) — the line's current text was recorded by some
+//      write. Survives line-number drift entirely: if the text is unchanged we
+//      find its owner no matter how far the line moved.
+//   2. line-range containment (v0.3a) — the most recent write whose [from,to]
+//      spans the line; used when we have no line text or the text has changed.
+// Ties break toward the most recently appended record (later = newer).
 
 import { basename } from 'node:path'
-import { type LedgerRecord } from './ledger.ts'
+import { hashLine, type LedgerRecord } from './ledger.ts'
 
 export interface LedgerOrigin {
   found: boolean
@@ -43,12 +47,20 @@ export function attributeLine(
   records: LedgerRecord[],
   file: string,
   line: number,
-  _lineContent?: string,
+  lineContent?: string,
 ): LedgerOrigin {
   const mine = records.filter((r) => sameFile(r.file, file))
   if (!mine.length) return NO_LEDGER_ORIGIN
 
-  // Positional range containment (most recent write wins).
+  // 1. content-hash match (drift-proof).
+  if (typeof lineContent === 'string') {
+    const h = hashLine(lineContent)
+    let best: LedgerRecord | null = null
+    for (const r of mine) if (r.hashes?.includes(h)) best = r // last wins
+    if (best) return toOrigin(best, 'ledger-hash')
+  }
+
+  // 2. positional range containment (most recent write wins).
   let best: LedgerRecord | null = null
   for (const r of mine) if (line >= r.from && line <= r.to) best = r // last wins
   if (best) return toOrigin(best, 'ledger-range')

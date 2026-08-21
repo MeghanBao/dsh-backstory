@@ -23,6 +23,25 @@ test('range match: the most recent write containing the line wins', () => {
   assert.equal(attributeLine(records, 'src/a.ts', 1).prompt, 'first')
 })
 
+test('hash match survives line drift (v0.3b)', () => {
+  const records = [rec({ turn: 7, prompt: 'wrote foo', from: 10, lines: ['const foo = 1'] })]
+  // The line has since moved from 10 to 3, but its text is unchanged.
+  const o = attributeLine(records, 'src/a.ts', 3, 'const foo = 1')
+  assert.equal(o.found, true)
+  assert.equal(o.turn, 7)
+  assert.equal(o.source, 'ledger-hash')
+})
+
+test('hash beats range when both could match', () => {
+  const records = [
+    rec({ turn: 1, prompt: 'range-owner', from: 1, lines: ['x', 'y', 'z'] }),
+    rec({ turn: 9, prompt: 'hash-owner', from: 99, lines: ['y'] }),
+  ]
+  const o = attributeLine(records, 'src/a.ts', 2, 'y')
+  assert.equal(o.prompt, 'hash-owner')
+  assert.equal(o.source, 'ledger-hash')
+})
+
 test('basename fallback matches relative vs absolute paths', () => {
   const records = [rec({ file: 'src/a.ts', from: 1, lines: ['a'] })]
   assert.equal(attributeLine(records, '/abs/proj/src/a.ts', 1).found, true)
