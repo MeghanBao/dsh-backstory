@@ -106,15 +106,29 @@ Whole-file reads are bounded to 400 lines.
 
 The plugin records every `write`/`edit` to `.dsh/backstory.jsonl` automatically
 (via a `tools/post-execute` observer) — **commit that file** to make provenance
-travel with the repo. To also anchor provenance in git history (drift handled by
-git), append the trailer block from `formatProvenanceTrailers()` to your commit
-message, e.g. via a `prepare-commit-msg` hook:
+travel with the repo.
+
+To also anchor provenance in git history (drift handled by git), install the
+`prepare-commit-msg` hook once per clone:
+
+```sh
+npm run install-hook
+```
+
+From then on every commit gets the newest ledger record for its staged files
+folded into trailers automatically:
 
 ```
 DSH-Turn: 14
 DSH-Prompt: 支持德语双语
 DSH-Session: 0f3a…
 ```
+
+The hook is best-effort (never blocks a commit), idempotent (safe on `--amend`),
+and self-disabling if removed. It backs up any existing hook to `*.backup`.
+
+> ⚠️ Trailers embed your prompts into public git history. Review before pushing;
+> redaction / opt-out is on the roadmap.
 
 ## Roadmap
 
@@ -127,15 +141,17 @@ DSH-Session: 0f3a…
 - **v0.3b** — **drift-proof attribution**: match a line by its content hash, so
   provenance survives the line moving in the file. ✅
 - **v0.4** — **git-native provenance**: `DSH-*` commit trailers, recovered via
-  `git blame → sha → trailer`, with drift handled by git itself. ✅
-- **next** — a `prepare-commit-msg` hook installer, a `/backstory` slash command
-  + Web card, and cached per-line explanations (re-explain only changed lines).
+  `git blame → sha → trailer`, with drift handled by git itself; plus a
+  `prepare-commit-msg` hook installer (`npm run install-hook`) that folds ledger
+  records into trailers automatically. ✅
+- **next** — prompt redaction / opt-out, a `/backstory` slash command + Web card,
+  and cached per-line explanations (re-explain only changed lines).
 
 ## Status
 
 Built against the `dsh` developer preview — APIs may shift. The blame parser,
 provenance engine, ledger, hash attribution, git-blame and commit-trailer paths
-are covered by **27 tests** (pure logic + e2e against real temp repos). Every
+are covered by **31 tests** (pure logic + e2e against real temp repos). Every
 runtime touchpoint (`exec.agent.session.events`, the `tools/post-execute`
 recorder) is defensive and degrades gracefully, so the tool never breaks.
 

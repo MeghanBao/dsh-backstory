@@ -29,7 +29,8 @@
   ],
   "scripts": {
     "test": "node --test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "install-hook": "node src/install-hook.ts"
   },
   "license": "MIT",
   "author": "MeghanBao",

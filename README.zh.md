@@ -87,15 +87,27 @@ agent 轮次/prompt（`🧬t<turn>`）。agent 用代码本身讲*做什么*，�
 ### Ledger 与 commit trailer
 
 插件通过 `tools/post-execute` 观察器**自动**把每次 `write`/`edit` 记录到
-`.dsh/backstory.jsonl`——把这个文件**提交**，溯源就随仓库走。若想再把溯源锚进 git
-历史（漂移交给 git 处理），把 `formatProvenanceTrailers()` 生成的 trailer 块追加到提交
-信息里，例如通过 `prepare-commit-msg` 钩子：
+`.dsh/backstory.jsonl`——把这个文件**提交**，溯源就随仓库走。
+
+若想再把溯源锚进 git 历史（漂移交给 git 处理），每个 clone 装一次
+`prepare-commit-msg` 钩子：
+
+```sh
+npm run install-hook
+```
+
+之后每次提交都会把暂存文件对应的最新 ledger 记录自动折进 trailer：
 
 ```
 DSH-Turn: 14
 DSH-Prompt: 支持德语双语
 DSH-Session: 0f3a…
 ```
+
+钩子是尽力而为（绝不阻断提交）、幂等（`--amend` 也安全）、删掉即停用；若已有同名钩子
+会备份为 `*.backup`。
+
+> ⚠️ trailer 会把你的 prompt 写进公开的 git 历史。push 前先检查；脱敏 / opt-out 在路线图上。
 
 ## 路线图
 
@@ -105,14 +117,15 @@ DSH-Session: 0f3a…
   （轮次、prompt、被改动行、内容 hash）；跨 session/机器/人保留。✅
 - **v0.3b** — **抗漂移归属**：按内容 hash 匹配行，行移位也不丢溯源。✅
 - **v0.4** — **git 原生溯源**：`DSH-*` commit trailer，经 `git blame → sha → trailer`
-  还原，漂移交给 git。✅
-- **接下来** — `prepare-commit-msg` 钩子安装器、`/backstory` 斜杠命令 + Web 卡片，
+  还原，漂移交给 git；外加 `prepare-commit-msg` 钩子安装器（`npm run install-hook`），
+  自动把 ledger 记录折进 trailer。✅
+- **接下来** — prompt 脱敏 / opt-out、`/backstory` 斜杠命令 + Web 卡片，
   以及按内容 hash 缓存的逐行解释（只重解释变了的行）。
 
 ## 状态
 
 针对 `dsh` 开发者预览版构建——API 可能变动。blame 解析、provenance 引擎、ledger、
-hash 归属、git-blame 与 commit-trailer 路径共 **27 个测试**覆盖（纯逻辑 + 对真实临时仓库
+hash 归属、git-blame 与 commit-trailer 路径共 **31 个测试**覆盖（纯逻辑 + 对真实临时仓库
 的 e2e）。所有运行时接触点（`exec.agent.session.events`、`tools/post-execute` 记录器）
 都做了防御处理并优雅降级，工具不会崩。
 
