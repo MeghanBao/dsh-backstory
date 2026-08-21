@@ -107,7 +107,21 @@ DSH-Session: 0f3a…
 钩子是尽力而为（绝不阻断提交）、幂等（`--amend` 也安全）、删掉即停用；若已有同名钩子
 会备份为 `*.backup`。
 
-> ⚠️ trailer 会把你的 prompt 写进公开的 git 历史。push 前先检查；脱敏 / opt-out 在路线图上。
+### 隐私：脱敏与 opt-out
+
+prompt 会存进 ledger（并经钩子进 commit trailer），所以在写入前会**自动脱敏**常见密钥——
+OpenAI / GitHub / AWS / Slack / Google 密钥、JWT、`Bearer` token，以及
+`password` / `token` / `secret` / `api_key` 这类 `键=值` 会被替换成 `[REDACTED]`。
+
+用 `.dsh/backstory.config.json` 可关闭记录或加自定义规则：
+
+```json
+{ "record": true, "redactPatterns": ["ACME-\\d+"] }
+```
+
+或用环境变量全局关闭：`DSH_BACKSTORY_DISABLE=1`。
+
+> ⚠️ 脱敏是尽力而为的模式匹配，不是保证——push 前先看提交，敏感内容直接 opt-out。
 
 ## 路线图
 
@@ -119,13 +133,15 @@ DSH-Session: 0f3a…
 - **v0.4** — **git 原生溯源**：`DSH-*` commit trailer，经 `git blame → sha → trailer`
   还原，漂移交给 git；外加 `prepare-commit-msg` 钩子安装器（`npm run install-hook`），
   自动把 ledger 记录折进 trailer。✅
-- **接下来** — prompt 脱敏 / opt-out、`/backstory` 斜杠命令 + Web 卡片，
-  以及按内容 hash 缓存的逐行解释（只重解释变了的行）。
+- **v0.5** — **隐私**：存储的 prompt 自动脱敏密钥 + `.dsh/backstory.config.json` /
+  `DSH_BACKSTORY_DISABLE` 的 opt-out。✅
+- **接下来** — `/backstory` 斜杠命令 + Web 卡片，以及按内容 hash 缓存的逐行解释
+  （只重解释变了的行）。
 
 ## 状态
 
 针对 `dsh` 开发者预览版构建——API 可能变动。blame 解析、provenance 引擎、ledger、
-hash 归属、git-blame 与 commit-trailer 路径共 **31 个测试**覆盖（纯逻辑 + 对真实临时仓库
+hash 归属、git-blame 与 commit-trailer 路径共 **37 个测试**覆盖（纯逻辑 + 对真实临时仓库
 的 e2e）。所有运行时接触点（`exec.agent.session.events`、`tools/post-execute` 记录器）
 都做了防御处理并优雅降级，工具不会崩。
 

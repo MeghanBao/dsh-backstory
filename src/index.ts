@@ -8,6 +8,8 @@ import { findTrigger, normalizeEvents, type RawEvent } from './provenance.ts'
 import { appendRecord, buildRecord, computeTouch, readLedger } from './ledger.ts'
 import { attributeLine } from './attribution.ts'
 import { parseProvenanceTrailers, type CommitProvenance } from './trailers.ts'
+import { isDisabledByEnv, loadConfig } from './config.ts'
+import { redactPrompt } from './redact.ts'
 
 // A dsh plugin = `name` + `apply(ctx)`.
 export const name = 'dsh-backstory'
@@ -90,6 +92,7 @@ function latestContext(session: any): { turn: number; prompt: string; sessionId:
  * Best-effort: any failure is swallowed so it can never break the tool call.
  */
 async function recordWrite(exec: any): Promise<void> {
+  if (isDisabledByEnv(process.env)) return
   const tool = exec?.name
   if (tool !== 'write' && tool !== 'edit') return
   const args = exec?.arguments as Record<string, unknown> | undefined
@@ -98,14 +101,19 @@ async function recordWrite(exec: any): Promise<void> {
   const cwd = session?.header?.cwd
   if (typeof rel !== 'string' || typeof cwd !== 'string') return
 
+  const config = await loadConfig(cwd)
+  if (!config.record) return // per-repo opt-out
+
   const abs = resolve(cwd, rel)
   const newContent = await readFile(abs, 'utf8')
   const touch = computeTouch(tool, args, newContent)
   if (!touch) return
 
   const { turn, prompt, sessionId } = latestContext(session)
+  // Scrub secrets before they reach the ledger (and later, commit trailers).
+  const safePrompt = redactPrompt(prompt, config.redactPatterns)
   const file = relative(cwd, abs).split('\\').join('/')
-  await appendRecord(cwd, buildRecord({ session: sessionId, turn, prompt, tool, file, touch }))
+  await appendRecord(cwd, buildRecord({ session: sessionId, turn, prompt: safePrompt, tool, file, touch }))
 }
 
 // ---------------------------------------------------------------------------

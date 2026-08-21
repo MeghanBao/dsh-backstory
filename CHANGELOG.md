@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **v0.5 — privacy.** Prompts are scrubbed of common secrets (OpenAI/GitHub/AWS/
+  Slack/Google keys, JWTs, `Bearer` tokens, `key=value` credentials) before they
+  reach the ledger or commit trailers (`src/redact.ts`). Opt out per repo with
+  `.dsh/backstory.config.json` (`"record": false`, plus custom `redactPatterns`)
+  or globally with `DSH_BACKSTORY_DISABLE=1` (`src/config.ts`).
 - **v0.3a — persistent line-level ledger.** A `tools/post-execute` observer
   records every write/edit to a repo-committed `.dsh/backstory.jsonl`
   (`turn, prompt, tool, file, line span, per-line content hashes`); the

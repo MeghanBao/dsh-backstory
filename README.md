@@ -127,8 +127,23 @@ DSH-Session: 0f3a…
 The hook is best-effort (never blocks a commit), idempotent (safe on `--amend`),
 and self-disabling if removed. It backs up any existing hook to `*.backup`.
 
-> ⚠️ Trailers embed your prompts into public git history. Review before pushing;
-> redaction / opt-out is on the roadmap.
+### Privacy: redaction & opt-out
+
+Prompts are stored in the ledger (and, via the hook, in commit trailers), so
+common secrets are **scrubbed automatically** before they are written — OpenAI /
+GitHub / AWS / Slack / Google keys, JWTs, `Bearer` tokens, and `key=value` pairs
+for `password` / `token` / `secret` / `api_key` become `[REDACTED]`.
+
+Turn recording off, or add your own patterns, via `.dsh/backstory.config.json`:
+
+```json
+{ "record": true, "redactPatterns": ["ACME-\\d+"] }
+```
+
+Or disable it everywhere with an env var: `DSH_BACKSTORY_DISABLE=1`.
+
+> ⚠️ Redaction is best-effort pattern matching, not a guarantee — review commits
+> before pushing, and opt out for anything sensitive.
 
 ## Roadmap
 
@@ -144,14 +159,16 @@ and self-disabling if removed. It backs up any existing hook to `*.backup`.
   `git blame → sha → trailer`, with drift handled by git itself; plus a
   `prepare-commit-msg` hook installer (`npm run install-hook`) that folds ledger
   records into trailers automatically. ✅
-- **next** — prompt redaction / opt-out, a `/backstory` slash command + Web card,
-  and cached per-line explanations (re-explain only changed lines).
+- **v0.5** — **privacy**: automatic secret redaction in stored prompts + a
+  `.dsh/backstory.config.json` / `DSH_BACKSTORY_DISABLE` opt-out. ✅
+- **next** — a `/backstory` slash command + Web card, and cached per-line
+  explanations (re-explain only changed lines).
 
 ## Status
 
 Built against the `dsh` developer preview — APIs may shift. The blame parser,
 provenance engine, ledger, hash attribution, git-blame and commit-trailer paths
-are covered by **31 tests** (pure logic + e2e against real temp repos). Every
+are covered by **37 tests** (pure logic + e2e against real temp repos). Every
 runtime touchpoint (`exec.agent.session.events`, the `tools/post-execute`
 recorder) is defensive and degrades gracefully, so the tool never breaks.
 
