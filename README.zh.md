@@ -114,6 +114,13 @@ DSH-Session: 0f3a…
 钩子是尽力而为（绝不阻断提交）、幂等（`--amend` 也安全）、删掉即停用；若已有同名钩子
 会备份为 `*.backup`。
 
+### 增量解释
+
+解释一行要花一次模型调用，所以解释会被缓存。agent 解释完 `backstory` 结果里
+`unexplained` 的那些行后，调用 `backstory_remember` 把它们存下来——按每行的**内容 hash**
+存进 `.dsh/backstory-notes.jsonl`。下次未改动的行会直接带着 `explanation`（`↳`）返回，
+只有文本变了的行才需要重新解释。省钱，且永不过时。
+
 ### 隐私：脱敏与 opt-out
 
 prompt 会存进 ledger（并经钩子进 commit trailer），所以在写入前会**自动脱敏**常见密钥——
@@ -143,12 +150,13 @@ OpenAI / GitHub / AWS / Slack / Google 密钥、JWT、`Bearer` token，以及
 - **v0.5** — **隐私**：存储的 prompt 自动脱敏密钥 + `.dsh/backstory.config.json` /
   `DSH_BACKSTORY_DISABLE` 的 opt-out。✅
 - **v0.6** — **`/backstory` 用户命令**（注册为 dsh skill），带 file:line 参数驱动工具。✅
-- **接下来** — 按内容 hash 缓存的逐行解释（只重解释变了的行）。
+- **v0.7** — **增量解释**：按内容 hash 缓存逐行解释（`backstory_remember` →
+  `.dsh/backstory-notes.jsonl`），只重解释变动的行。✅
 
 ## 状态
 
 针对 `dsh` 开发者预览版构建——API 可能变动。blame 解析、provenance 引擎、ledger、
-hash 归属、git-blame 与 commit-trailer 路径共 **39 个测试**覆盖（纯逻辑 + 对真实临时仓库
+hash 归属、git-blame 与 commit-trailer 路径共 **43 个测试**覆盖（纯逻辑 + 对真实临时仓库
 的 e2e）。所有运行时接触点（`exec.agent.session.events`、`tools/post-execute` 记录器）
 都做了防御处理并优雅降级，工具不会崩。
 

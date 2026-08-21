@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **v0.7 — incremental explanations.** Per-line explanations are cached by
+  content hash in `.dsh/backstory-notes.jsonl` (`src/notes.ts`): a new
+  `backstory_remember` tool stores them, and `backstory` attaches an
+  `explanation` to any line whose text is unchanged (drift-proof) plus an
+  `unexplained` count. Only changed lines need re-explaining. Pure logic
+  unit-tested; verified e2e (remember → drift → cache hit) against real dsh-tools.
 - **v0.6 — `/backstory` user command.** Registered as a dsh skill via
   `ctx.skills.register` (`@deepseek-ai/dsh-skill`, optional peer): a user-invocable
   markdown command that drives the `backstory` tool with a `file:line` argument

@@ -5,7 +5,8 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { isoDate, shortSha } from './blame.ts'
 import { blameFile, readCommitBodies } from './git.ts'
 import { findTrigger, normalizeEvents, type RawEvent } from './provenance.ts'
-import { appendRecord, buildRecord, computeTouch, readLedger } from './ledger.ts'
+import { appendRecord, buildRecord, computeTouch, hashLine, readLedger } from './ledger.ts'
+import { appendNote, buildNote, indexNotes, readNotes } from './notes.ts'
 import { attributeLine } from './attribution.ts'
 import { parseProvenanceTrailers, type CommitProvenance } from './trailers.ts'
 import { isDisabledByEnv, loadConfig } from './config.ts'
@@ -46,6 +47,7 @@ interface BackstoryLine {
   date: string
   summary: string
   owner?: LineOwner
+  explanation?: string // cached per-line explanation (v0.7), keyed by content hash
 }
 
 /**
@@ -148,7 +150,7 @@ export function apply(ctx: Context) {
     defineTool({
       name: 'backstory',
       description:
-        "Get the backstory of code: for a file (or a specific line range) return each line with the git commit that last touched it, plus — when the agent itself wrote a line — which turn wrote it and the user prompt that triggered it (from a persistent per-line ledger, drift-resilient by content hash). Use it to explain not just WHAT the code does but WHY it is there. Ask for a narrow line range on large files.",
+        "Get the backstory of code: for a file (or a specific line range) return each line with the git commit that last touched it, plus — when the agent itself wrote a line — which turn wrote it and the user prompt that triggered it (from a persistent per-line ledger, drift-resilient by content hash). Lines you have explained before come back with a cached `explanation`; only explain the ones without it, then call `backstory_remember` to cache your new explanations. `unexplained` counts the lines still needing one. Use it to explain not just WHAT the code does but WHY it is there. Ask for a narrow line range on large files.",
       parameters: {
         path: { type: 'string', required: true, description: 'File path (absolute or workspace-relative)' },
         line: { type: 'number', description: 'First line (1-based). Omit to read the whole file.' },
@@ -163,6 +165,7 @@ export function apply(ctx: Context) {
             range: { type: 'string' },
             repo: { type: 'boolean' },
             truncated: { type: 'boolean' },
+            unexplained: { type: 'number' },
             note: { type: 'string' },
             origin: {
               type: 'object',
@@ -196,6 +199,7 @@ export function apply(ctx: Context) {
                       source: { type: 'string' },
                     },
                   },
+                  explanation: { type: 'string' },
                 },
               },
             },
@@ -207,9 +211,10 @@ export function apply(ctx: Context) {
           const body = (v.lines ?? [])
             .map((l) => {
               const mark = l.owner ? ` 🧬t${l.owner.turn}` : ''
+              const cached = l.explanation ? `\n    ↳ ${l.explanation}` : ''
               return `L${l.line} · ${shortSha(l.commit ?? '')} ${l.author ?? ''}${
                 l.date ? ` ${l.date}` : ''
-              }${l.summary ? ` — "${l.summary}"` : ''}${mark}\n    ${l.content}`
+              }${l.summary ? ` — "${l.summary}"` : ''}${mark}\n    ${l.content}${cached}`
             })
             .join('\n')
           const originLine = origin.found
@@ -217,11 +222,14 @@ export function apply(ctx: Context) {
                 origin.prompt ? ` — you asked: "${clip(origin.prompt)}"` : ''
               }${origin.source ? ` [${origin.source}]` : ''}`
             : ''
+          const cache = v.unexplained
+            ? `\n(${v.unexplained} line(s) not yet explained — explain them, then call backstory_remember; ↳ = cached explanation.)`
+            : ''
           const foot = v.repo
             ? `${originLine}\n(WHAT: explain each line from the code. WHY: the commit message${
                 origin.found ? ' + the origin turn/prompt' : ''
-              } above. 🧬t = the agent turn that wrote that line.)`
-            : `${originLine}\n(${v.note})`
+              } above. 🧬t = the agent turn that wrote that line.)${cache}`
+            : `${originLine}\n(${v.note})${cache}`
           return [{ type: 'text', text: `${head}\n${body}${foot}` }]
         },
       },
@@ -234,6 +242,7 @@ export function apply(ctx: Context) {
 
         const cwd = (exec as any)?.agent?.session?.header?.cwd ?? dirname(abs)
         const records = await readLedger(cwd)
+        const notes = indexNotes(await readNotes(cwd))
 
         // Always read the source so we can answer even outside a git repo.
         const source = await readFile(abs, { encoding: 'utf8', signal: exec.signal })
@@ -312,17 +321,75 @@ export function apply(ctx: Context) {
         const ledgerOrigin = enrich(lines, commitProv)
         const origin = ledgerOrigin.found ? ledgerOrigin : await sessionProvenance(exec, abs, start ?? 0)
 
+        // Attach cached explanations by line-content hash; count what still needs one.
+        let unexplained = 0
+        for (const l of lines) {
+          const cached = notes.get(hashLine(l.content))
+          if (cached) l.explanation = cached
+          else unexplained++
+        }
+
         return blame.repo
-          ? { path: args.path, range, repo: true, truncated, note: '', origin, lines }
+          ? { path: args.path, range, repo: true, truncated, unexplained, note: '', origin, lines }
           : {
               path: args.path,
               range,
               repo: false,
               truncated,
+              unexplained,
               note: 'Not a git repository — showing source only, no history.',
               origin,
               lines,
             }
+      },
+    }),
+  )
+
+  // Companion write tool (v0.7): cache the explanations the model just produced,
+  // keyed by each line's current content hash, so future `backstory` queries
+  // return them and only changed lines need re-explaining.
+  ctx.tools.register(
+    defineTool({
+      name: 'backstory_remember',
+      description:
+        'Cache your per-line explanations so future `backstory` queries return them. Pass the lines you just explained; each is stored keyed by the line\'s current content, and comes back as `explanation` until that line changes. Call this after explaining the `unexplained` lines from `backstory`.',
+      parameters: {
+        path: { type: 'string', required: true, description: 'File path (absolute or workspace-relative)' },
+        notes: {
+          type: 'array',
+          required: true,
+          description: 'One entry per explained line.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              line: { type: 'number', required: true, description: 'Line number (1-based)' },
+              text: { type: 'string', required: true, description: 'The explanation for that line' },
+            },
+          },
+        },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { saved: { type: 'number' }, path: { type: 'string' } },
+        },
+        render: (_args, v) => [{ type: 'text', text: `💾 cached ${v.saved} explanation(s) for ${v.path}` }],
+      },
+
+      async execute(args, exec) {
+        const abs = resolve(args.path)
+        const cwd = (exec as any)?.agent?.session?.header?.cwd ?? dirname(abs)
+        const allLines = (await readFile(abs, { encoding: 'utf8', signal: exec.signal })).split('\n')
+        let saved = 0
+        for (const n of args.notes ?? []) {
+          const content = allLines[n.line - 1]
+          if (typeof content !== 'string' || !n.text) continue
+          await appendNote(cwd, buildNote(content, n.text))
+          saved++
+        }
+        return { saved, path: args.path }
       },
     }),
   )

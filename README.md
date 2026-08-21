@@ -133,6 +133,15 @@ DSH-Session: 0f3a…
 The hook is best-effort (never blocks a commit), idempotent (safe on `--amend`),
 and self-disabling if removed. It backs up any existing hook to `*.backup`.
 
+### Incremental explanations
+
+Explaining a line costs a model call, so explanations are cached. After the agent
+explains the `unexplained` lines from a `backstory` result, it calls
+`backstory_remember` to store them — keyed by each line's **content hash**, in
+`.dsh/backstory-notes.jsonl`. Next time, unchanged lines come back with their
+`explanation` already attached (`↳`), and only lines whose text changed need
+re-explaining. Cheap, and never stale.
+
 ### Privacy: redaction & opt-out
 
 Prompts are stored in the ledger (and, via the hook, in commit trailers), so
@@ -169,13 +178,15 @@ Or disable it everywhere with an env var: `DSH_BACKSTORY_DISABLE=1`.
   `.dsh/backstory.config.json` / `DSH_BACKSTORY_DISABLE` opt-out. ✅
 - **v0.6** — a **`/backstory` user command** (registered as a dsh skill) that
   drives the tool with a file:line argument. ✅
-- **next** — cached per-line explanations (re-explain only changed lines).
+- **v0.7** — **incremental explanations**: cache per-line explanations by content
+  hash (`backstory_remember` → `.dsh/backstory-notes.jsonl`); only re-explain
+  lines that changed. ✅
 
 ## Status
 
 Built against the `dsh` developer preview — APIs may shift. The blame parser,
 provenance engine, ledger, hash attribution, git-blame and commit-trailer paths
-are covered by **39 tests** (pure logic + e2e against real temp repos). Every
+are covered by **43 tests** (pure logic + e2e against real temp repos). Every
 runtime touchpoint (`exec.agent.session.events`, the `tools/post-execute`
 recorder) is defensive and degrades gracefully, so the tool never breaks.
 
