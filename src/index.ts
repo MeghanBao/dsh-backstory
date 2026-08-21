@@ -1,10 +1,12 @@
 import { readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { isoDate, shortSha } from './blame.ts'
 import { blameFile } from './git.ts'
 import { findTrigger, normalizeEvents, type RawEvent } from './provenance.ts'
+import { appendRecord, buildRecord, computeTouch, readLedger } from './ledger.ts'
+import { attributeLine, type LedgerOrigin } from './attribution.ts'
 
 // A dsh plugin = `name` + `apply(ctx)`.
 export const name = 'dsh-backstory'
@@ -13,7 +15,7 @@ export const inject = ['tools']
 const MAX_LINES = 400 // bound whole-file output
 
 // ---------------------------------------------------------------------------
-// Provenance adapter (the dsh-native half, v0.2)
+// Provenance adapter (the dsh-native half)
 // ---------------------------------------------------------------------------
 
 interface Origin {
@@ -21,18 +23,33 @@ interface Origin {
   turn: number
   tool: string
   prompt: string
+  source: string // 'ledger-hash' | 'ledger-range' | 'session' | 'none'
 }
 
-const NO_ORIGIN: Origin = { found: false, turn: -1, tool: '', prompt: '' }
+const NO_ORIGIN: Origin = { found: false, turn: -1, tool: '', prompt: '', source: 'none' }
+
+interface LineOwner {
+  turn: number
+  prompt: string
+  source: string
+}
+
+interface BackstoryLine {
+  line: number
+  content: string
+  commit: string
+  author: string
+  date: string
+  summary: string
+  owner?: LineOwner
+}
 
 /**
- * Reconstruct which agent turn wrote `absPath` (near `line`) and the user prompt
- * that triggered it, from the live session's append-only event log
- * (`exec.agent.session.events`). Pure reasoning lives in ./provenance.ts; this
- * adapter only reaches into the dsh runtime and degrades to NO_ORIGIN on any
- * unexpected shape, so the tool always still returns its git backstory.
+ * v0.2 fallback: reconstruct which agent turn wrote `absPath` (near `line`) and
+ * the prompt that triggered it, from the *live* session event log. Used only
+ * when the persistent ledger has nothing. Degrades to NO_ORIGIN on any shape.
  */
-async function provenance(exec: unknown, absPath: string, line: number): Promise<Origin> {
+async function sessionProvenance(exec: unknown, absPath: string, line: number): Promise<Origin> {
   try {
     const session = (exec as any)?.agent?.session
     const events = session?.events as RawEvent[] | undefined
@@ -41,7 +58,7 @@ async function provenance(exec: unknown, absPath: string, line: number): Promise
     const { writes, prompts } = normalizeEvents(events, cwd)
     const t = findTrigger(absPath, line, writes, prompts)
     if (!t) return NO_ORIGIN
-    return { found: true, turn: t.turn, tool: t.tool, prompt: t.prompt ?? '' }
+    return { found: true, turn: t.turn, tool: t.tool, prompt: t.prompt ?? '', source: 'session' }
   } catch {
     return NO_ORIGIN
   }
@@ -52,15 +69,65 @@ function clip(s: string, n = 140): string {
 }
 
 // ---------------------------------------------------------------------------
+// Recorder (v0.3a): append a persistent provenance record on every write/edit
+// ---------------------------------------------------------------------------
+
+/** Current turn + triggering prompt + session id, from the live session log. */
+function latestContext(session: any): { turn: number; prompt: string; sessionId: string } {
+  const sessionId = session?.header?.id ?? session?.id ?? ''
+  const events = session?.events
+  if (!Array.isArray(events)) return { turn: 0, prompt: '', sessionId }
+  const cwd = session?.header?.cwd ?? ''
+  const { prompts } = normalizeEvents(events, cwd)
+  const last = prompts[prompts.length - 1]
+  return { turn: last?.turn ?? 0, prompt: last?.text ?? '', sessionId }
+}
+
+/**
+ * Read the file back after a completed write/edit, compute the touched line span
+ * + content hashes, and append a record to `<cwd>/.dsh/backstory.jsonl`.
+ * Best-effort: any failure is swallowed so it can never break the tool call.
+ */
+async function recordWrite(exec: any): Promise<void> {
+  const tool = exec?.name
+  if (tool !== 'write' && tool !== 'edit') return
+  const args = exec?.arguments as Record<string, unknown> | undefined
+  const rel = (args?.file_path ?? args?.path) as string | undefined
+  const session = exec?.agent?.session
+  const cwd = session?.header?.cwd
+  if (typeof rel !== 'string' || typeof cwd !== 'string') return
+
+  const abs = resolve(cwd, rel)
+  const newContent = await readFile(abs, 'utf8')
+  const touch = computeTouch(tool, args, newContent)
+  if (!touch) return
+
+  const { turn, prompt, sessionId } = latestContext(session)
+  const file = relative(cwd, abs).split('\\').join('/')
+  await appendRecord(cwd, buildRecord({ session: sessionId, turn, prompt, tool, file, touch }))
+}
+
+// ---------------------------------------------------------------------------
 // The tool
 // ---------------------------------------------------------------------------
 
 export function apply(ctx: Context) {
+  // Persist provenance as it happens (v0.3a). Never let recording throw into
+  // the tool waterfall; observe, record, and always continue.
+  ;(ctx as any).on?.('tools/post-execute', async (exec: any, result: any, next: any) => {
+    try {
+      if (result && !result.isError) await recordWrite(exec)
+    } catch {
+      /* recording is best-effort */
+    }
+    return next()
+  })
+
   ctx.tools.register(
     defineTool({
       name: 'backstory',
       description:
-        "Get the backstory of code: for a file (or a specific line range) return each line with the git commit that last touched it, plus — when the agent itself wrote the file — which turn wrote it and the user prompt that triggered it. Use it to explain not just WHAT the code does but WHY it is there. Ask for a narrow line range on large files.",
+        "Get the backstory of code: for a file (or a specific line range) return each line with the git commit that last touched it, plus — when the agent itself wrote a line — which turn wrote it and the user prompt that triggered it (from a persistent per-line ledger, drift-resilient by content hash). Use it to explain not just WHAT the code does but WHY it is there. Ask for a narrow line range on large files.",
       parameters: {
         path: { type: 'string', required: true, description: 'File path (absolute or workspace-relative)' },
         line: { type: 'number', description: 'First line (1-based). Omit to read the whole file.' },
@@ -84,6 +151,7 @@ export function apply(ctx: Context) {
                 turn: { type: 'number' },
                 tool: { type: 'string' },
                 prompt: { type: 'string' },
+                source: { type: 'string' },
               },
             },
             lines: {
@@ -98,6 +166,15 @@ export function apply(ctx: Context) {
                   author: { type: 'string' },
                   date: { type: 'string' },
                   summary: { type: 'string' },
+                  owner: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      turn: { type: 'number' },
+                      prompt: { type: 'string' },
+                      source: { type: 'string' },
+                    },
+                  },
                 },
               },
             },
@@ -107,22 +184,22 @@ export function apply(ctx: Context) {
           const origin = v.origin ?? NO_ORIGIN
           const head = `📖 backstory · ${v.path} (${v.range})`
           const body = (v.lines ?? [])
-            .map(
-              (l) =>
-                `L${l.line} · ${shortSha(l.commit ?? '')} ${l.author ?? ''}${l.date ? ` ${l.date}` : ''}${
-                  l.summary ? ` — "${l.summary}"` : ''
-                }\n    ${l.content}`,
-            )
+            .map((l) => {
+              const mark = l.owner ? ` 🧬t${l.owner.turn}` : ''
+              return `L${l.line} · ${shortSha(l.commit ?? '')} ${l.author ?? ''}${
+                l.date ? ` ${l.date}` : ''
+              }${l.summary ? ` — "${l.summary}"` : ''}${mark}\n    ${l.content}`
+            })
             .join('\n')
           const originLine = origin.found
-            ? `\n🧬 origin · turn ${origin.turn} (${origin.tool} by the agent)${
+            ? `\n🧬 origin · turn ${origin.turn}${origin.tool ? ` (${origin.tool} by the agent)` : ''}${
                 origin.prompt ? ` — you asked: "${clip(origin.prompt)}"` : ''
-              }`
+              }${origin.source ? ` [${origin.source}]` : ''}`
             : ''
           const foot = v.repo
             ? `${originLine}\n(WHAT: explain each line from the code. WHY: the commit message${
                 origin.found ? ' + the origin turn/prompt' : ''
-              } above.)`
+              } above. 🧬t = the agent turn that wrote that line.)`
             : `${originLine}\n(${v.note})`
           return [{ type: 'text', text: `${head}\n${body}${foot}` }]
         },
@@ -134,8 +211,8 @@ export function apply(ctx: Context) {
         const end = args.endLine ?? args.line
         const range = start ? `${start}-${end}` : 'whole file'
 
-        // dsh-native provenance (best-effort; degrades to NO_ORIGIN).
-        const origin = await provenance(exec, abs, start ?? 0)
+        const cwd = (exec as any)?.agent?.session?.header?.cwd ?? dirname(abs)
+        const records = await readLedger(cwd)
 
         // Always read the source so we can answer even outside a git repo.
         const source = await readFile(abs, { encoding: 'utf8', signal: exec.signal })
@@ -149,40 +226,59 @@ export function apply(ctx: Context) {
           truncated = true
         }
 
+        // Per-line ledger attribution (drift-proof by content hash). Also yields
+        // a file-level origin from the first attributed line.
+        const enrich = (lines: BackstoryLine[]): Origin => {
+          let fileOrigin = NO_ORIGIN
+          for (const l of lines) {
+            const o: LedgerOrigin = attributeLine(records, args.path, l.line, l.content)
+            if (o.found) {
+              l.owner = { turn: o.turn, prompt: o.prompt, source: o.source }
+              if (!fileOrigin.found) {
+                fileOrigin = { found: true, turn: o.turn, tool: o.tool, prompt: o.prompt, source: o.source }
+              }
+            }
+          }
+          return fileOrigin
+        }
+
         // Try git blame for commit-level provenance.
         const blame = await blameFile(abs, start ? from : undefined, start ? hi : undefined, {
           signal: exec.signal,
         })
-        if (blame.repo) {
-          const lines = blame.lines.slice(0, MAX_LINES).map((b) => ({
-            line: b.line,
-            content: b.content,
-            commit: b.commit,
-            author: b.author,
-            date: isoDate(b.authorTime),
-            summary: b.summary,
-          }))
-          return { path: args.path, range, repo: true, truncated, note: '', origin, lines }
-        }
+        const lines: BackstoryLine[] = blame.repo
+          ? blame.lines.slice(0, MAX_LINES).map((b) => ({
+              line: b.line,
+              content: b.content,
+              commit: b.commit,
+              author: b.author,
+              date: isoDate(b.authorTime),
+              summary: b.summary,
+            }))
+          : allLines.slice(from - 1, hi).map((content, i) => ({
+              line: from + i,
+              content,
+              commit: '0'.repeat(40),
+              author: '',
+              date: '',
+              summary: '',
+            }))
 
-        // Not a git repo (or git missing): fall back to bare source lines.
-        const lines = allLines.slice(from - 1, hi).map((content, i) => ({
-          line: from + i,
-          content,
-          commit: '0'.repeat(40),
-          author: '',
-          date: '',
-          summary: '',
-        }))
-        return {
-          path: args.path,
-          range,
-          repo: false,
-          truncated,
-          note: 'Not a git repository — showing source only, no history.',
-          origin,
-          lines,
-        }
+        // Origin precedence: persistent ledger first, live session log second.
+        const ledgerOrigin = enrich(lines)
+        const origin = ledgerOrigin.found ? ledgerOrigin : await sessionProvenance(exec, abs, start ?? 0)
+
+        return blame.repo
+          ? { path: args.path, range, repo: true, truncated, note: '', origin, lines }
+          : {
+              path: args.path,
+              range,
+              repo: false,
+              truncated,
+              note: 'Not a git repository — showing source only, no history.',
+              origin,
+              lines,
+            }
       },
     }),
   )
