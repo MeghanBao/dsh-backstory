@@ -1,13 +1,10 @@
 import { readFile } from 'node:fs/promises'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { basename, dirname, resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { isoDate, parsePorcelainBlame, shortSha } from './blame.ts'
+import { isoDate, shortSha } from './blame.ts'
+import { blameFile } from './git.ts'
 import { findTrigger, normalizeEvents, type RawEvent } from './provenance.ts'
-
-const run = promisify(execFile)
 
 // A dsh plugin = `name` + `apply(ctx)`.
 export const name = 'dsh-backstory'
@@ -153,18 +150,11 @@ export function apply(ctx: Context) {
         }
 
         // Try git blame for commit-level provenance.
-        const gitArgs = ['blame', '--line-porcelain']
-        if (start) gitArgs.push('-L', `${from},${hi}`)
-        gitArgs.push('--', basename(abs))
-
-        try {
-          const { stdout } = await run('git', gitArgs, {
-            cwd: dirname(abs),
-            signal: exec.signal,
-            maxBuffer: 32 * 1024 * 1024,
-          })
-          const parsed = parsePorcelainBlame(stdout)
-          const lines = parsed.slice(0, MAX_LINES).map((b) => ({
+        const blame = await blameFile(abs, start ? from : undefined, start ? hi : undefined, {
+          signal: exec.signal,
+        })
+        if (blame.repo) {
+          const lines = blame.lines.slice(0, MAX_LINES).map((b) => ({
             line: b.line,
             content: b.content,
             commit: b.commit,
@@ -173,25 +163,25 @@ export function apply(ctx: Context) {
             summary: b.summary,
           }))
           return { path: args.path, range, repo: true, truncated, note: '', origin, lines }
-        } catch {
-          // Not a git repo (or git missing): fall back to bare source lines.
-          const lines = allLines.slice(from - 1, hi).map((content, i) => ({
-            line: from + i,
-            content,
-            commit: '0'.repeat(40),
-            author: '',
-            date: '',
-            summary: '',
-          }))
-          return {
-            path: args.path,
-            range,
-            repo: false,
-            truncated,
-            note: 'Not a git repository — showing source only, no history.',
-            origin,
-            lines,
-          }
+        }
+
+        // Not a git repo (or git missing): fall back to bare source lines.
+        const lines = allLines.slice(from - 1, hi).map((content, i) => ({
+          line: from + i,
+          content,
+          commit: '0'.repeat(40),
+          author: '',
+          date: '',
+          summary: '',
+        }))
+        return {
+          path: args.path,
+          range,
+          repo: false,
+          truncated,
+          note: 'Not a git repository — showing source only, no history.',
+          origin,
+          lines,
         }
       },
     }),
