@@ -13,9 +13,9 @@ why it exists** — grounded in the commit that last touched it (and, soon, the
 agent's own session log).
 
 ```
-backstory  src/blame.ts:27          # a real line from this repo
+backstory  src/blame.ts:27
 ──────────────────────────────────────────────────────────────
-L27 · a5d49e9  MeghanBao 2026-08-20 — "feat: dsh-backstory v0.1 …"
+L27 · a5d49e9  2026-08-20 — "feat: dsh-backstory v0.1 …"
     const header = /^([0-9a-f]{40}) \d+ (\d+)(?: \d+)?$/.exec(raw)
 
 → WHAT: matches a `git blame --line-porcelain` header line (sha + line numbers)
