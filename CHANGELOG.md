@@ -7,12 +7,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **v0.3a — persistent line-level ledger.** A `tools/post-execute` observer
+  records every write/edit to a repo-committed `.dsh/backstory.jsonl`
+  (`turn, prompt, tool, file, line span, per-line content hashes`); the
+  `backstory` tool attributes each line to the turn/prompt that wrote it, shown
+  as a per-line `🧬t<turn>` owner. Survives across sessions/machines/people.
+- **v0.3b — drift-proof attribution.** A line is matched to its ledger record by
+  content hash first, so provenance survives the line moving in the file.
+- **v0.4 — git-native provenance.** `DSH-Turn`/`DSH-Prompt`/`DSH-Session` commit
+  trailers, recovered via `git blame → sha → trailer` (`readCommitBodies` +
+  `parseProvenanceTrailers`); git tracks line drift. Per-line precedence:
+  ledger content-hash > commit trailer > ledger range > live session.
+- `README.zh.md` (Chinese README).
 - `dsh.bundle` manifest field + `cordis.patch.yml` so the plugin can be listed
   and installed via the dsh host composition.
 - GitHub Actions CI running `typecheck` + tests on Node 20 and 22.
 - `src/git.ts`: git blame I/O extracted from the tool wiring, with end-to-end
-  tests against real temporary repositories (commit attribution, line ranges,
-  and the outside-a-repo fallback). Test count 10 → 13.
+  tests against real temporary repositories. Test count 10 → **27**.
 
 ### Fixed
 - `render()` is now null-safe; `npm run typecheck` passes (was 12 errors).
