@@ -1,5 +1,9 @@
 # dsh-backstory
 
+[![CI](https://github.com/MeghanBao/dsh-backstory/actions/workflows/ci.yml/badge.svg)](https://github.com/MeghanBao/dsh-backstory/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![dsh plugin](https://img.shields.io/badge/dsh-plugin-6f42c1.svg)](https://github.com/deepseek-ai/deepseek-harness)
+
 > Ask any line of code its **backstory** — *what it does*, and *why it's here*.
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) plugin.
@@ -37,13 +41,21 @@ L27 · a5d49e9  MeghanBao 2026-08-20 — "feat: dsh-backstory v0.1 …"
 dsh plugin add dsh-backstory      # once published to npm
 ```
 
+When installed, the dsh host applies the bundle patch declared in
+`package.json` (`dsh.bundle.patch` → [`cordis.patch.yml`](cordis.patch.yml)),
+which inserts the plugin into the running composition. No extra wiring needed.
+
 Or run from source for local development:
 
 ```sh
 git clone https://github.com/MeghanBao/dsh-backstory.git
 cd dsh-backstory
-npm test          # unit tests for the blame parser
+npm run typecheck   # tsc --noEmit
+npm test            # blame parser, provenance engine, git-blame e2e
 ```
+
+The standalone [`cordis.yml`](cordis.yml) loads just this plugin for local
+iteration.
 
 ## Usage
 
@@ -80,10 +92,11 @@ Whole-file reads are bounded to 400 lines.
 
 ## Status
 
-Built against the `dsh` developer preview — APIs may shift. The blame parser and
-the provenance engine (`src/provenance.ts`) are unit-tested (10 tests). The
-runtime adapter reads `exec.agent.session.events` defensively and degrades to
-git-only if a payload shape differs, so the tool never breaks.
+Built against the `dsh` developer preview — APIs may shift. The blame parser, the
+provenance engine (`src/provenance.ts`), and the git-blame path (`src/git.ts`,
+against real temp repos) are covered by 13 tests. The runtime adapter reads
+`exec.agent.session.events` defensively and degrades to git-only if a payload
+shape differs, so the tool never breaks.
 
 ## License
 
