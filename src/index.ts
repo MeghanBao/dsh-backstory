@@ -107,25 +107,26 @@ export function apply(ctx: Context) {
           },
         },
         render: (_args, v) => {
+          const origin = v.origin ?? NO_ORIGIN
           const head = `📖 backstory · ${v.path} (${v.range})`
-          const body = v.lines
+          const body = (v.lines ?? [])
             .map(
               (l) =>
-                `L${l.line} · ${shortSha(l.commit)} ${l.author}${l.date ? ` ${l.date}` : ''}${
+                `L${l.line} · ${shortSha(l.commit ?? '')} ${l.author ?? ''}${l.date ? ` ${l.date}` : ''}${
                   l.summary ? ` — "${l.summary}"` : ''
                 }\n    ${l.content}`,
             )
             .join('\n')
-          const origin = v.origin.found
-            ? `\n🧬 origin · turn ${v.origin.turn} (${v.origin.tool} by the agent)${
-                v.origin.prompt ? ` — you asked: "${clip(v.origin.prompt)}"` : ''
+          const originLine = origin.found
+            ? `\n🧬 origin · turn ${origin.turn} (${origin.tool} by the agent)${
+                origin.prompt ? ` — you asked: "${clip(origin.prompt)}"` : ''
               }`
             : ''
           const foot = v.repo
-            ? `${origin}\n(WHAT: explain each line from the code. WHY: the commit message${
-                v.origin.found ? ' + the origin turn/prompt' : ''
+            ? `${originLine}\n(WHAT: explain each line from the code. WHY: the commit message${
+                origin.found ? ' + the origin turn/prompt' : ''
               } above.)`
-            : `${origin}\n(${v.note})`
+            : `${originLine}\n(${v.note})`
           return [{ type: 'text', text: `${head}\n${body}${foot}` }]
         },
       },
