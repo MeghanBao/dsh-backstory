@@ -1,0 +1,6 @@
+# Bundle patch applied by the dsh host when this plugin is installed.
+# Registers the backstory plugin into the running cordis composition.
+# (Standalone dev iteration still uses ./cordis.yml.)
+- insert:
+    - id: dsh-backstory
+      name: dsh-backstory

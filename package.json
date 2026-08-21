@@ -4,12 +4,21 @@
   "description": "Ask any line of code its backstory: what it does, and why it's here — grounded in git history and the agent's own session log.",
   "type": "module",
   "main": "src/index.ts",
+  "engines": {
+    "node": ">=20"
+  },
   "files": [
     "src",
     "cordis.yml",
+    "cordis.patch.yml",
     "README.md",
     "LICENSE"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",
