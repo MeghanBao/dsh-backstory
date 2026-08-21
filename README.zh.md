@@ -65,7 +65,14 @@ npm test            # blame 解析、provenance、ledger、hash 归属、git e2e
 
 ## 用法
 
-插件注册了一个面向模型的 **`backstory`** 工具，直接用自然语言问 agent：
+直接输入 **`/backstory`** 命令，可带文件和行范围：
+
+```
+/backstory src/auth.ts:40-60
+/backstory utils/date.ts
+```
+
+或用自然语言问 agent（用的是同一个 `backstory` 工具）：
 
 - *"`src/auth.ts` 第 88 行的来龙去脉是什么？"*
 - *"解释 `utils/date.ts` 10–40 行，以及每部分为什么在那儿"*
@@ -135,13 +142,13 @@ OpenAI / GitHub / AWS / Slack / Google 密钥、JWT、`Bearer` token，以及
   自动把 ledger 记录折进 trailer。✅
 - **v0.5** — **隐私**：存储的 prompt 自动脱敏密钥 + `.dsh/backstory.config.json` /
   `DSH_BACKSTORY_DISABLE` 的 opt-out。✅
-- **接下来** — `/backstory` 斜杠命令 + Web 卡片，以及按内容 hash 缓存的逐行解释
-  （只重解释变了的行）。
+- **v0.6** — **`/backstory` 用户命令**（注册为 dsh skill），带 file:line 参数驱动工具。✅
+- **接下来** — 按内容 hash 缓存的逐行解释（只重解释变了的行）。
 
 ## 状态
 
 针对 `dsh` 开发者预览版构建——API 可能变动。blame 解析、provenance 引擎、ledger、
-hash 归属、git-blame 与 commit-trailer 路径共 **37 个测试**覆盖（纯逻辑 + 对真实临时仓库
+hash 归属、git-blame 与 commit-trailer 路径共 **39 个测试**覆盖（纯逻辑 + 对真实临时仓库
 的 e2e）。所有运行时接触点（`exec.agent.session.events`、`tools/post-execute` 记录器）
 都做了防御处理并优雅降级，工具不会崩。
 

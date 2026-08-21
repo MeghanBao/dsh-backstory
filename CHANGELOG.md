@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **v0.6 — `/backstory` user command.** Registered as a dsh skill via
+  `ctx.skills.register` (`@deepseek-ai/dsh-skill`, optional peer): a user-invocable
+  markdown command that drives the `backstory` tool with a `file:line` argument
+  (`src/skill.ts`). Registration is optional — hosts without the skills service
+  still expose the tool. Verified against the real `SkillService`.
 - **v0.5 — privacy.** Prompts are scrubbed of common secrets (OpenAI/GitHub/AWS/
   Slack/Google keys, JWTs, `Bearer` tokens, `key=value` credentials) before they
   reach the ledger or commit trailers (`src/redact.ts`). Opt out per repo with

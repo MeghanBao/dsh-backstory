@@ -81,8 +81,14 @@ iteration.
 
 ## Usage
 
-The plugin registers a model-facing **`backstory`** tool, so just ask the agent
-in natural language:
+Type the **`/backstory`** command, optionally with a file and line range:
+
+```
+/backstory src/auth.ts:40-60
+/backstory utils/date.ts
+```
+
+Or just ask the agent in natural language (it uses the same `backstory` tool):
 
 - *"what's the backstory of `src/auth.ts` line 88?"*
 - *"explain `utils/date.ts` lines 10–40 and why each part is there"*
@@ -161,14 +167,15 @@ Or disable it everywhere with an env var: `DSH_BACKSTORY_DISABLE=1`.
   records into trailers automatically. ✅
 - **v0.5** — **privacy**: automatic secret redaction in stored prompts + a
   `.dsh/backstory.config.json` / `DSH_BACKSTORY_DISABLE` opt-out. ✅
-- **next** — a `/backstory` slash command + Web card, and cached per-line
-  explanations (re-explain only changed lines).
+- **v0.6** — a **`/backstory` user command** (registered as a dsh skill) that
+  drives the tool with a file:line argument. ✅
+- **next** — cached per-line explanations (re-explain only changed lines).
 
 ## Status
 
 Built against the `dsh` developer preview — APIs may shift. The blame parser,
 provenance engine, ledger, hash attribution, git-blame and commit-trailer paths
-are covered by **37 tests** (pure logic + e2e against real temp repos). Every
+are covered by **39 tests** (pure logic + e2e against real temp repos). Every
 runtime touchpoint (`exec.agent.session.events`, the `tools/post-execute`
 recorder) is defensive and degrades gracefully, so the tool never breaks.
 

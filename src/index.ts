@@ -10,6 +10,7 @@ import { attributeLine } from './attribution.ts'
 import { parseProvenanceTrailers, type CommitProvenance } from './trailers.ts'
 import { isDisabledByEnv, loadConfig } from './config.ts'
 import { redactPrompt } from './redact.ts'
+import { backstorySkill } from './skill.ts'
 
 // A dsh plugin = `name` + `apply(ctx)`.
 export const name = 'dsh-backstory'
@@ -121,6 +122,17 @@ async function recordWrite(exec: any): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export function apply(ctx: Context) {
+  // Register the `/backstory` user command, when the skills service is present.
+  // Optional: hosts without it still expose the `backstory` tool. Register once
+  // the service is available (via inject), else best-effort immediately.
+  const registerSkill = (c: any) => c?.skills?.register?.(backstorySkill())
+  try {
+    if (typeof (ctx as any).inject === 'function') (ctx as any).inject(['skills'], registerSkill)
+    else registerSkill(ctx)
+  } catch {
+    /* skills service absent — the tool still works */
+  }
+
   // Persist provenance as it happens (v0.3a). Never let recording throw into
   // the tool waterfall; observe, record, and always continue.
   ;(ctx as any).on?.('tools/post-execute', async (exec: any, result: any, next: any) => {

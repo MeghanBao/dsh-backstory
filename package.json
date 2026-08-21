@@ -40,7 +40,13 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-tools": "*"
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/dsh-skill": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-skill": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
